@@ -153,20 +153,35 @@ function Utils.highlight_on_first_syllable(word)
 	return 1
 end
 
-local function _navigate_tree(node, callback)
-	local child_count = node:named_child_count()
+--- Recursively navigate a syntax tree and apply a callback to matching nodes.
+-- @param node userdata: The current node in the syntax tree.
+-- @param node_types table: A list of node types to match. If "any" is included, all nodes will match.
+-- @param callback function: A function to apply to matching nodes. The function receives the node as an argument.
+local function _navigate_tree(node, node_types, callback)
+    -- Get the type of the current node
+    local node_type = node:type()
 
-	if child_count ~= 0 then
-		for child, _ in node:iter_children() do
-			_navigate_tree(child, callback)
-		end
-	end
+    -- Get the range of the current node
+    local start_row, start_col, end_row, end_col = node:range()
 
-	return callback(node)
+    -- Check if the current node type matches the specified types
+    if vim.tbl_contains(node_types, "any") or vim.tbl_contains(node_types, node_type) then
+        -- Apply the callback to the matching node
+        callback(node)
+    end
+
+    -- Recursively navigate all child nodes
+    for child in node:iter_children() do
+        _navigate_tree(child, node_types, callback)
+    end
 end
 
-function Utils.navigate_tree(node, callback)
-	_navigate_tree(node, callback)
+--- Public function to navigate a syntax tree and apply a callback to matching nodes.
+-- @param node userdata: The root node of the syntax tree.
+-- @param node_types table: A list of node types to match. If "any" is included, all nodes will match.
+-- @param callback function: A function to apply to matching nodes. The function receives the node as an argument.
+function Utils.navigate_tree(node, node_types, callback)
+    _navigate_tree(node, node_types, callback)
 end
 
 return Utils

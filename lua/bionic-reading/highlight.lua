@@ -10,29 +10,79 @@ local Highlight = {
 }
 
 
---- Apply highlighting to buffer
---- @param bufnr number
---- @param line_start number
---- @param line_end number
---- @return nil
-local function _apply_highlighting(bufnr, line_start, line_end)
-	bufnr = bufnr or api.nvim_get_current_buf()
-	line_start = line_start or 0
-	line_end = line_end or api.nvim_buf_line_count(bufnr)
+--- Get the column range for a line based on its position (first line, last line, or middle line).
+-- @param line number: The current line number.
+-- @param line_start number: The starting line of the range.
+-- @param line_end number: The ending line of the range.
+-- @param col_start number: The starting column for the first line.
+-- @param col_end number: The ending column for the last line.
+-- @param line_content string: The content of the current line.
+-- @return number, number: The start and end column for the current line.
+local function get_column_range(line, line_start, line_end, col_start, col_end, line_content)
+    if line == line_start then
+        -- First line: from col_start to the end of the line
+        return col_start, #line_content
+    elseif line == line_end then
+        -- Last line: from the start of the line to col_end
+        return 0, col_end == -1 and #line_content or col_end
+    else
+        -- Middle lines: from the start to the end of the line
+        return 0, #line_content
+    end
+end
 
-	local lines = api.nvim_buf_get_lines(bufnr, line_start, line_end, false)
+--- Apply highlighting to a range of lines in a buffer, with dynamic column ranges.
+-- @param bufnr number: The buffer number to apply highlighting to. Defaults to the current buffer.
+-- @param line_start number: The starting line of the range. Defaults to 0.
+-- @param line_end number: The ending line of the range. Defaults to the last line of the buffer.
+-- @param col_start number: The starting column for the first line. Defaults to 0.
+-- @param col_end number: The ending column for the last line. Defaults to -1 (end of line).
+local function _apply_highlighting(bufnr, line_start, line_end, col_start, col_end)
+    -- Set default parameters
+    bufnr = bufnr or api.nvim_get_current_buf() -- Default to the current buffer
+    line_start = line_start or 0 -- Default to the first line
+    line_end = line_end or api.nvim_buf_line_count(bufnr) - 1 -- Default to the last line
 
-	for line_index, line in ipairs(lines) do
-		for word_index, word in string.gmatch(line, "()([^%s%p%d]+)") do
-			local line_to_hl = line_start + line_index - 1
-			local col_start = word_index - 1
-			local col_end = col_start
+    -- Ensure valid column ranges
+    col_start = col_start or 0 -- Default to the first column
+    col_end = col_end or -1 -- Default to the end of the line
 
-			col_end = col_start + Utils.highlight_on_first_syllable(word)
+    -- Iterate over the specified line range
+    for line = line_start, line_end do
+        -- Get the content of the current line
+        local line_content = api.nvim_buf_get_lines(bufnr, line, line + 1, false)[1] or ""
 
-			api.nvim_buf_add_highlight(bufnr, Highlight.namespace, Highlight.hl_group, line_to_hl, col_start, col_end)
-		end
-	end
+        -- Determine the column range for the current line
+        local start_col, end_col = get_column_range(line, line_start, line_end, col_start, col_end, line_content)
+
+        -- Ensure the column range is within the line
+        end_col = math.min(end_col, #line_content)
+
+        -- Collect words to highlight in the current line
+        local highlights = {}
+        for word_index, word in string.gmatch(line_content, "()([^%s%p%d]+)") do
+            -- Calculate the column range for the word
+            local word_start = word_index - 1
+            local word_end = word_start + Utils.highlight_on_first_syllable(word)
+
+            -- Ensure the word is within the dynamic column range
+            if word_start >= start_col and word_end <= end_col then
+                table.insert(highlights, { word_start, word_end })
+            end
+        end
+
+        -- Apply highlighting to the collected words
+        for _, highlight in ipairs(highlights) do
+            api.nvim_buf_add_highlight(
+                bufnr, -- Buffer number
+                Highlight.namespace, -- Highlight namespace
+                Highlight.hl_group, -- Highlight group
+                line, -- Line number
+                highlight[1], -- Start column
+                highlight[2] -- End column
+            )
+        end
+    end
 end
 
 --- Highlight buffer using treesitter
@@ -79,14 +129,14 @@ local function _treesitter_highlight(bufnr, line_start, line_end)
 		return true
 	end
 
-	Utils.navigate_tree(root, function(node)
-		for _, node_type in ipairs(filetype_node_types) do
-			if node_type == 'any' or node_type == node:type() then
-				local row_start = node:range()
+	Utils.navigate_tree(root, filetype_node_types, function(node)
+		-- for _, node_type in ipairs(filetype_node_types) do
+			-- if node_type == 'any' or node_type == node:type() then
+				local start_row, start_col, end_row, end_col = node:range()
 
-				_apply_highlighting(bufnr, row_start, row_start + 1)
-			end
-		end
+				_apply_highlighting(bufnr, start_row, end_row, start_col, end_col)
+			-- end
+		-- end
 	end)
 
 	return true
